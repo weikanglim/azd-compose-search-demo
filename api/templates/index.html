@@ -193,6 +193,7 @@
         .dropdown {
             position: relative;
             display: inline-block;
+            visibility: hidden;
         }
         
         .dropdown-btn {
@@ -230,8 +231,7 @@
                 <div class="toggle-container">
                     <span>Use Foundry connection and model:</span>
                     <label class="toggle">
-                        <!-- To default to direct connection and OpenAI model, remove 'checked' attribute below -->
-                        <input type="checkbox" id="hubToggle">
+                        <input type="checkbox" id="hubToggle" disabled>
                         <span class="slider"></span>
                     </label>
                 </div>
@@ -300,7 +300,7 @@
                 showIndexLoading(true);
                 clearStatus();
                 
-                fetch(`/api/create_index?hub=${hubToggle.checked}`)
+                fetch('/api/create_index')
                     .then(response => response.json())
                     .then(data => {
                         if (data.index) {
@@ -322,7 +322,7 @@
                 showIndexLoading(true);
                 clearStatus();
                 
-                fetch(`/api/upload_documents?hub=${hubToggle.checked}`)
+                fetch('/api/upload_documents')
                     .then(response => response.json())
                     .then(data => {
                         if (data.result) {
@@ -357,7 +357,7 @@
                 
                 const query = searchQuery.value.trim();
                 const endpoint = query === '' ? '/api/empty_query' : '/api/search';
-                const url = `${endpoint}?hub=${hubToggle.checked}${query !== '' ? '&query=' + encodeURIComponent(query) : ''}`;
+                const url = `${endpoint}${query !== '' ? '?query=' + encodeURIComponent(query) : ''}`;
                 
                 fetch(url)
                     .then(response => response.json())
@@ -431,7 +431,7 @@
                 recommendationsContainer.innerHTML = '';
                 
                 const useSearch = searchToggle.checked;
-                fetch(`/api/recommend?hub=${hubToggle.checked}&search=${useSearch}&query=${encodeURIComponent(query)}`)
+                fetch(`/api/recommend?search=${useSearch}&query=${encodeURIComponent(query)}`)
                     .then(response => response.json())
                     .then(data => {
                         if (data.error) {

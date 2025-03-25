@@ -1,7 +1,6 @@
 import os
 
 from flask import Flask, render_template, request, jsonify
-from azure.core.credentials import AzureKeyCredential
 from azure.identity import DefaultAzureCredential, AzureDeveloperCliCredential, get_bearer_token_provider
 from azure.search.documents import SearchClient
 from azure.search.documents.indexes import SearchIndexClient
@@ -12,8 +11,6 @@ from azure.search.documents.indexes.models import (
     SearchIndex,
     SimpleField,
 )
-from azure.ai.projects import AIProjectClient
-from azure.ai.projects.models import ConnectionType
 from openai import AzureOpenAI
 from openai.lib.azure import AzureADTokenProvider
 
@@ -30,7 +27,6 @@ token_provider: AzureADTokenProvider = get_bearer_token_provider(credential, sco
 
 search_endpoint = os.environ.get('AZURE_AI_SEARCH_ENDPOINT')
 openai_endpoint = os.environ.get('AZURE_OPENAI_ENDPOINT')
-project_connection_string=os.environ.get('AZURE_AIPROJECT_CONNECTION_STRING')
 
 openai_model_name = "gpt-4o"
 foundry_model_name = "gpt-4o-mini"
@@ -126,52 +122,19 @@ def get_openai_client():
         api_version="2024-06-01",
         azure_endpoint=openai_endpoint,
         azure_ad_token_provider=token_provider,
-        )
-
-def get_ai_chat_completion_client():
-    project = AIProjectClient.from_connection_string(conn_str=project_connection_string, credential=credential)
-    return project.inference.get_chat_completions_client()
-
-def get_index_client(hub: bool):
-    if not hub:
-        return SearchIndexClient(endpoint=search_endpoint, credential=credential)
-    
-    project = AIProjectClient.from_connection_string(conn_str=project_connection_string, credential=credential)
-    search_connection = project.connections.get_default(
-        connection_type=ConnectionType.AZURE_AI_SEARCH,
-        include_credentials=True)
-
-    index_client = SearchIndexClient(
-        endpoint=search_connection.endpoint_url,
-        credential=AzureKeyCredential(key=search_connection.key)
     )
 
-    return index_client
+def get_index_client():
+    return SearchIndexClient(endpoint=search_endpoint, credential=credential)
 
-def get_search_client(hub: bool):
-    if not hub:
-        return SearchClient(endpoint=search_endpoint, index_name=index_name, credential=credential)
-
-    project = AIProjectClient.from_connection_string(conn_str=project_connection_string, credential=credential)
-    search_connection = project.connections.get_default(
-        connection_type=ConnectionType.AZURE_AI_SEARCH,
-        include_credentials=True)
-
-    search_client = SearchClient(
-        index_name=index_name,
-        endpoint=search_connection.endpoint_url,
-        credential=AzureKeyCredential(key=search_connection.key)
-    )
-    return search_client
+def get_search_client():
+    return SearchClient(endpoint=search_endpoint, index_name=index_name, credential=credential)
 
 @app.route('/api/create_index')
 def create_index():
     """API endpoint to create search index"""
-    use_hub = request.args.get('hub', 'False').lower() == 'true'
-
     try:
-        index_client = get_index_client(use_hub)
-
+        index_client = get_index_client()
         fields = [
                 SimpleField(name="HotelId", type=SearchFieldDataType.String, key=True),
                 SearchableField(name="HotelName", type=SearchFieldDataType.String, sortable=True),
@@ -212,9 +175,8 @@ def create_index():
 @app.route('/api/upload_documents')
 def upload_documents():
     """API endpoint to upload documents to the index"""
-    use_hub = request.args.get('hub', 'False').lower() == 'true'
     try:
-        search_client = get_search_client(use_hub)
+        search_client = get_search_client()
         result = search_client.upload_documents(documents=documents)
         print("Upload of new document succeeded: {}".format(result[0].succeeded))
         return jsonify({"result": result[0].succeeded})
@@ -224,10 +186,8 @@ def upload_documents():
 @app.route('/api/search')
 def search():
     """API endpoint to perform search with a query"""
-    use_hub = request.args.get('hub', 'False').lower() == 'true'
-    
     try:
-        search_client = get_search_client(use_hub)
+        search_client = get_search_client()
         # Get query parameter from request, default to "*" if not provided
         search_query = request.args.get('query', '*')
         # Run a search with the provided query
@@ -260,10 +220,8 @@ def search():
 
 @app.route('/api/empty_query')
 def empty_query():
-    use_hub = request.args.get('hub', 'False').lower() == 'true'
-
     try:
-        search_client = get_search_client(use_hub)
+        search_client = get_search_client()
         # Run an empty query (returns selected fields, all documents)
         results = search_client.search(query_type='simple',
             search_text="*",
@@ -292,7 +250,6 @@ def empty_query():
 @app.route('/api/recommend')
 def recommend():
     """API endpoint to get AI recommendations based on search results"""
-    use_hub = request.args.get('hub', 'False').lower() == 'true'
     use_search = request.args.get('search', 'False').lower() == 'true'
 
     # Get query parameter from request
@@ -304,7 +261,7 @@ def recommend():
         sources_formatted = ""
         search_results = []
         if use_search:
-            search_client = get_search_client(use_hub)
+            search_client = get_search_client()
             # Search for relevant hotels
             search_results = search_client.search(
                 search_text=query,
@@ -338,20 +295,12 @@ def recommend():
             }
         ]
 
-        if use_hub:
-            chat_client = get_ai_chat_completion_client()
-            response = chat_client.complete(
-                model=foundry_model_name,
-                messages=messages,
-                max_tokens=100,
-            )
-        else:
-            openai_client = get_openai_client()
-            response = openai_client.chat.completions.create(
-                model=openai_model_name,
-                messages=messages,
-                max_tokens=100,
-            )
+        openai_client = get_openai_client()
+        response = openai_client.chat.completions.create(
+            model=openai_model_name,
+            messages=messages,
+            max_tokens=100,
+        )
 
         recommendation = response.choices[0].message.content
 
